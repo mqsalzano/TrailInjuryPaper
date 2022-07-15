@@ -1,0 +1,834 @@
+---
+title: "Trail Running Injuries - Chi-Sq Analysis"
+author: "Matthew Salzano"
+date: "6/16/2021"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, warning=FALSE, include=FALSE}
+library(readxl)
+library(knitr)
+library(rcompanion)
+library(chisq.posthoc.test)
+library(RVAideMemoire)
+library(MRCV)
+library(rmarkdown)
+library(ggpubr)
+library(ggsci)
+library(tidyr)
+library(cowplot)
+library(reshape2)
+library(extrafont)
+font_import()
+loadfonts(device = "postscript", quiet = TRUE)
+library(ggplot2)
+
+
+
+savefolder = "C:/Users/Matt/Documents/TrailData"
+setwd(savefolder)
+
+```
+
+Methods:
+
+For this study, 1000+ runners were given a questionnaire about their trail running histories and preferences.  Runners were asked to note if they had ever been injured while trail running, types of trail on which they run ('Select all that apply' format), the types of terrains of these trails ('Select all that apply' format), the types of injuries sustained while trail running ('Select all that apply' format), and what shoe feature is most important to them in a trail shoe.
+
+```{r, echo = FALSE, message = FALSE}
+ShoePrefXL = as.data.frame(read_excel(paste0(savefolder, "/ShoePreference_InjuredVsUninjured.xlsx")))
+TerrainInjuryXL = as.data.frame(read_excel(paste0(savefolder, "/TerrainTypeInjuries.xlsx")))
+TrailInjuryXL = as.data.frame(read_excel(paste0(savefolder, "/TrailTypeInjuries.xlsx")))
+```
+
+Structure of Excel data is as follows:
+
+ShoePrefXL is 4 columns by 14 rows.  Each row, except for Row 1, is a shoe preference category.  Column 1 contain the labels of these categories. Columns 2-4 are the "Total" runners, "Injured" runners, and "NonInjured" runners. Row 1 is the number of runners in each category. Elements in all other rows are decimals, reflecting the percentage of runners of that category selecting the shoe feature as most important.
+
+TrailInjuryXL is 9 columns by 15 rows.  Each row, 
+
+1st row is the number of runners per category, which will be isolated into its own dataset. Here, category will refer to either injury status, terrain type, or trail type. 2nd row and greater contain percent of runners who recorded an outcome in each category. 1st column lists the levels of a second category, either shoe feature or injury type, and are converted into row names.  2nd column is the total responses for each level, which will also be isolated into its own datset. Note that in the terrain and trail data, there are 2 "Total" columns (columns 2 and 3) - the duplicate is removed during manipulation. Rest of the columns are the levels of the first category (injury status, terrain type, or trail type). 
+
+The datasets containing the first and second rows will be used test distribution across the different categories.  The remaining rows (>= 2 x >=2) are then isolated to form their own dataset, which will be used for chi-square analysis.  For chi-square to work, data needs to be in counts, not percentages.  The data are converted into counts by multiplying the percentage by the number of runners per category.
+```{r, echo = FALSE}
+#some of the data comes in as percentages, which need to be converted to counts
+findcounts = function(percentages, N, counts) {
+  
+  for (i in 1:ncol(percentages)) {
+    
+    counts[,i] = round(percentages[,i]*as.numeric(N[i]))
+  }
+  return(counts)
+  }
+
+```
+
+
+\newpage
+
+
+# **Question 1**
+Is the number of runners that reported an injury different than those that did not?  
+
+**Method**: Use binomial test to see if the number of runners classified as injured and uninjured are different.    
+```{r, echo = FALSE, results = 'asis'}
+#first line in Excel sheet was total number of runners 
+Nsubj_ShoePref = ShoePrefXL[1,-1]
+rownames(Nsubj_ShoePref) = "# of Runners"
+
+kable(Nsubj_ShoePref)
+Inj.v.Uninj = binom.test(as.numeric(Nsubj_ShoePref[,-1]))
+cat(paste("Injured Vs. Uninjured: p = ", round(Inj.v.Uninj$p.value, digits = 4)))
+```
+
+**Results**: Of the 1002 runners that responded, there were significantly more injured runners than uninjured runners. 
+
+\newpage   
+
+# **Question 2**    
+Are the listed shoe features equally important among all runners?  
+
+**Method**: Use a Chi-Square goodness-of-fit test to see if responses are equally distributed across all shoe features.  
+```{r, echo = FALSE, results = 'asis'}
+ShoePref = ShoePrefXL[-1,]
+names(ShoePref)[1] = 'ShoeProperty'
+rownames(ShoePref) = ShoePref[,1]
+ShoePref = ShoePref[-nrow(ShoePref),-1]
+ShoeCount = ShoePref
+ShoeCount = findcounts(percentages = ShoePref, N = Nsubj_ShoePref, counts = ShoeCount)
+
+ShoeTotal = as.data.frame(ShoeCount[,-c(2:3)], row.names = rownames(ShoeCount))
+names(ShoeTotal)  = names(ShoeCount)[1]
+totalshoe_chisq = chisq.test(t(ShoeTotal))
+shoe_contribution = 100*((totalshoe_chisq$residuals^2)/totalshoe_chisq$statistic)
+ShoeTotal = cbind(ShoeTotal, round(shoe_contribution, digits = 1))
+names(ShoeTotal)[2] = "% Contribution"
+kable(ShoeTotal)
+cat(paste("Chi-sq statistic: ", round(totalshoe_chisq$statistic, digits = 2), "; DoF = ", totalshoe_chisq$parameter ,"; p-value = ", round(totalshoe_chisq$p.value, digits = 4)))
+```
+
+**Results**: Some shoe features are rated as "most important" more than others.  
+
+\newpage
+
+# **Question 3**
+Do injured runners have a different shoe feature preference than runners who did not sustain an injury?  
+
+**Method**: Use a Chi-Square test of independence.  
+```{r, echo = FALSE, results = 'asis'}
+kable(ShoeCount[,-1])
+shoe_chisq = chisq.test(ShoeCount[,-1])
+cat(paste("Chi-sq statistic: ", round(shoe_chisq$statistic, digits = 2), "; DoF = ", shoe_chisq$parameter ,"; p-value = ", round(shoe_chisq$p.value, digits = 4)))
+```
+
+**Results**:  Shoe feature importance is not different between injured and uninjured runners. See Table 3 in paper. 
+
+\newpage
+
+# **Question 4**
+Do all types of injuries occur at the same frequency?   
+
+**Method**: Use a Chi-Square goodness-of-fit test to see if responses are equally distributed across all types of injuries.  
+```{r, echo = FALSE, results = 'asis'}
+Nsubj_Terrain = TerrainInjuryXL[1,-c(1,3)]
+names(Nsubj_Terrain) = c("Total", "ExposedTreeline",
+                         "HighlyTech", "ModTech", "MuddySlick", "Sandy", 
+                         "Groomed")
+TerrainInjury = TerrainInjuryXL[-c(1,nrow(TerrainInjuryXL)),]
+
+names(TerrainInjury) = c("Injurytype", "Total", "Total2", "ExposedTreeline",
+                         "HighlyTech", "ModTech", "MuddySlick", "Sandy", 
+                         "Groomed")
+rownames(TerrainInjury) = TerrainInjury[,1]
+TerrainInjury = TerrainInjury[-nrow(TerrainInjury),-c(1,3)]
+TerrainCount = TerrainInjury
+TerrainCount = findcounts(percentages = TerrainInjury, N = Nsubj_Terrain, counts = TerrainCount)
+
+TotalInjuries = as.data.frame(TerrainCount[,-c(2:7)], row.names = rownames(TerrainCount))
+names(TotalInjuries)  = names(TerrainCount)[1]
+totalinjury_chisq = chisq.test(t(TotalInjuries))
+injury_contribution = 100*((totalinjury_chisq$residuals^2)/totalinjury_chisq$statistic)
+TotalInjuries = cbind(TotalInjuries, round(injury_contribution, digits = 1))
+names(TotalInjuries)[2] = "% Contribution"
+kable(TotalInjuries)
+
+cat(paste("Chi-sq statistic: ", round(totalinjury_chisq$statistic, digits = 2), "; DoF = ", totalinjury_chisq$parameter ,"; p-value = ", round(totalinjury_chisq$p.value, digits = 4)))
+```
+
+**Results**: Injuries did not occur at the same rate, with sprained ankles occurring most frequently.  
+
+\newpage
+
+
+# **Question 5**
+
+Do runners that have experienced an injury have a different preference for trail type and terrain type than those who have not experienced an injury?
+
+**Method**: Due to multi-select answers, multiple marginal independence tests were used.
+
+```{r, echo = FALSE, results = 'asis'}
+
+RawTrailInjury = as.data.frame(read_excel(paste0(savefolder,"/Injury_Trail_RawData_Full.xlsx")))[,c(1,2,12,22,23,25)]
+#RawTrailInjury = temp[,c(1,2,12,22,23,25)]
+names(RawTrailInjury) = c("ID", "TrailType", "TerrainType", "Injured", "InjuryType", "TrailProducts")
+RawTrailInjury = RawTrailInjury[-c(1,2),]
+#RawTrailInjury$TrailType = gsub(",", " ", RawTrailInjury$TrailType)
+
+RawTrailInjury = RawTrailInjury[-which(RawTrailInjury$Injured == "Prefer not to answer"),]
+
+rawTrailUse = data.frame(matrix(ncol = 28, nrow = nrow(RawTrailInjury)))
+names(rawTrailUse)  = c("ID", "InjuredYN", "ShoesYN", "Groomed", 
+                            "MultiUse",
+                            "UnpavedForest",
+                            "Backcountry",
+                            "AlpineMtn",
+                            "Desert",
+                        "Smooth",
+                        "Moderate",
+                        "Technical",
+                        "Exposed",
+                        "Sandy",
+                        "Muddy",
+                         "AnkleSprain",
+                         "FootFracture",
+                         "ShinFracture",
+                         "HipFracture",
+                         "PlantarFasciitis",
+                         "BrokenFoot",
+                         "KneePain",
+                         "ShinPain",
+                         "LowerBack",
+                         "UpperBack",
+                         "AchillesStrain",
+                         "Other",
+                         "NoAnswer")
+
+groom = "Groomed trails in a park"
+multi = "Single track multi-use trails (e.g., hiking, running, horseback, riding)"
+mtn = "Mountain trails in an alpine setting"
+desert = "Desert trails"
+unpaved = "Unpaved forest roads"
+remote = 'Remote "backcountry" trails'
+other = "Other (Specify)"
+
+easy = "Well groomed, non-technical, and smooth terrain (comprised of dirt, gravel, or other hard-packed surfaces)"
+moderate = "Moderately technical terrain (comprised of several sections of rocks, roots, mud, and other obstacles)"
+technical = "Highly technical terrain (comprised of several sections of rocks, roots, mud, and other obstacles)"
+exposed = "Exposed terrain typically above the treeline"
+sandy = "Sandy terrain"
+muddy = "Muddy and slick terrain"
+other2 = "Other (Specify)"
+
+sprained_ankle = "Rolled/sprained ankle"
+foot_fracture = "Stress fracture in foot"
+shin_fracture = "Stress fracture in shin"
+hip_fracture = "Stress fracture in hip"
+pl_fascia = "Plantar fasciitis"
+broken_foot = "Broken bone in foot"
+knee_pain = "Knee pain"
+shin_pain = "Shin pain"
+lower_back = "Lower back pain"
+upper_back = "Upper back pain"
+achilles = "Achilles strain"
+other3 = "Other"
+no_answer = "Prefer not to answer"
+
+trailshoes = "Shoes"
+
+
+
+
+for (i in 1:nrow(RawTrailInjury)) {
+  
+  rawTrailUse$ID[i] = i
+  
+  rawTrailUse$InjuredYN[i] = ifelse(RawTrailInjury$Injured[i] == "Yes", 1, 0)
+  
+  rawTrailUse$ShoesYN[i] = ifelse(grepl(trailshoes, RawTrailInjury$TrailProducts[i], fixed = TRUE) == TRUE, 1, 0)
+                                   
+  rawTrailUse$Groomed[i] = ifelse(grepl(groom, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$MultiUse[i] = ifelse(grepl(multi, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$UnpavedForest[i] = ifelse(grepl(unpaved, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Backcountry[i] = ifelse(grepl(remote, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$AlpineMtn[i] = ifelse(grepl(mtn, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Desert[i] = ifelse(grepl(desert, RawTrailInjury$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+  rawTrailUse$Smooth[i] = ifelse(grepl(easy, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Moderate[i] = ifelse(grepl(moderate, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Technical[i] = ifelse(grepl(technical, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Exposed[i] = ifelse(grepl(exposed, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Sandy[i] = ifelse(grepl(sandy, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Muddy[i] = ifelse(grepl(muddy, RawTrailInjury$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+  rawTrailUse$AnkleSprain[i] = ifelse(grepl(sprained_ankle, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$FootFracture[i] = ifelse(grepl(foot_fracture, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$ShinFracture[i] = ifelse(grepl(shin_fracture, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$HipFracture[i] = ifelse(grepl(hip_fracture, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$PlantarFasciitis[i] = ifelse(grepl(pl_fascia, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$BrokenFoot[i] = ifelse(grepl(broken_foot, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$KneePain[i] = ifelse(grepl(knee_pain, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$ShinPain[i] = ifelse(grepl(shin_pain, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$LowerBack[i] = ifelse(grepl(lower_back, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$UpperBack[i] = ifelse(grepl(upper_back, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$AchillesStrain[i] = ifelse(grepl(achilles, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$Other[i] = ifelse(grepl(other3, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  rawTrailUse$NoAnswer[i] = ifelse(grepl(no_answer, RawTrailInjury$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+}
+
+# TrailUse2 = data.frame(
+#               "inj_yes" = c(62, 55, 39, 36, 28, 19),
+#               "inj_no" = c(67,48, 33, 24, 19, 8),
+#               row.names = c("Groomed",
+#                             "MultiUse",
+#                             "UnpavedForest",
+#                             "Backcountry",
+#                             "AlpineMtn",
+#                             "Desert"),
+#               stringsAsFactors = FALSE)
+# 
+# TrailUse2[,1] = round((TrailUse2[,1]/100)*Nsubj_ShoePref$Injured)
+# TrailUse2[,2] = round((TrailUse2[,2]/100)*Nsubj_ShoePref$NonInjured)
+# colnames(TrailUse2) = c("Injured", "Noninjured")
+
+trailuse_results = MI.test(rawTrailUse[,-c(1,3)], I = 1, J = 6, type = "bon")
+
+TrailUse = data.frame(
+  "Inj" = c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Groomed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$MultiUse == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$UnpavedForest == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Backcountry == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$AlpineMtn == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Desert == 1),1])),
+  "UnInj" =  c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Groomed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$MultiUse == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$UnpavedForest == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Backcountry == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$AlpineMtn == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Desert == 1),1])),
+  row.names = c("Groomed", "MultiUse", "UnpavedForest", "Backcountry", "AlpineMtn", "Desert"),
+  stringsAsFactors = FALSE
+)
+
+TrailUse$Inj_pct = round((TrailUse[,1]/length(rawTrailUse$InjuredYN[which(rawTrailUse$InjuredYN == 1)]))*100)
+TrailUse$UnInj_pct = round((TrailUse[,2]/length(rawTrailUse$InjuredYN[which(rawTrailUse$InjuredYN == 0)]))*100)
+
+kable(TrailUse)
+cat(paste("Bonferroni adjusted p-value = ", round(trailuse_results$bon$p.value.bon, digits = 10)), '\n')  
+kable(trailuse_results$bon$X.sq.S.ij.p.bon, caption = "Adj. P-Values")
+# cat(paste("Groomed trail adj. p-value = ", round(trailuse_results$bon$X.sq.S.ij.p.bon[1], digits = 6)), '\n')  
+# cat(paste("Multi-use trail adj. p-value = ", round(trailuse_rseults$bon$X.sq.S.ij.p.bon[2], digits = 6)), '\n')  
+# cat(paste("Unpaved Forest trail adj. p-value = ", round(trailuse_results$bon$X.sq.S.ij.p.bon[3], digits = 6)), '\n')  
+# cat(paste("Backcountry trail adj. p-value = ", round(trailuse_results$bon$X.sq.S.ij.p.bon[4], digits = 6)), '\n')  
+# cat(paste("Alpine mtn. trail adj. p-value = ", round(trailuse_results$bon$X.sq.S.ij.p.bon[5], digits = 6)), '\n')  
+# cat(paste("Desert trail adj. p-value = ", round(trailuse_results$bon$X.sq.S.ij.p.bon[6], digits = 10)), '\n')  
+
+
+tempTrailInj = cbind(rawTrailUse[which(rawTrailUse$InjuredYN == 1), c(16:27)], rawTrailUse[which(rawTrailUse$InjuredYN == 1), c(4:9)])
+temp_TrailInj_results = MI.test(tempTrailInj, I = 12, J = 6, type = "bon")
+
+
+
+trail_inj_pct = data.frame(
+  "Groomed" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Multiuse" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "UnpavedForest" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Backcountry" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "AlpineMtn" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Desert" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  row.names = names(tempTrailInj)[c(1:12)],
+  stringsAsFactors = FALSE
+)
+
+for (i in 1:6) {
+  
+  for (k in 1:12) {
+    
+    trail_inj_pct[k,i] = round((length(tempTrailInj[which(tempTrailInj[,k] == 1 & tempTrailInj[,(12+i)] == 1),1]))/(length(tempTrailInj[which(tempTrailInj[,(12+i)] == 1),1]))*100)
+    
+  }
+  
+}
+
+kable(round(temp_TrailInj_results$bon$X.sq.S.ij.p.bon, digits = 4))
+trail.table = marginal.table(tempTrailInj, I = 12, J = 6)
+count.col = seq(1, ncol(trail.table),2)
+
+trail.count.yes = trail.table[,count.col]
+
+trail.inj.table = item.response.table(tempTrailInj, I = 12, J = 6)
+
+
+
+terrain_results = MI.test(rawTrailUse[,-c(1,3:9)], I = 1, J = 6, type = "bon")
+
+TerrainUse = data.frame(
+  "Inj" = c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Smooth == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Moderate == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Technical == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Exposed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Sandy == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Muddy == 1),1])),
+  "UnInj" =  c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Smooth == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Moderate == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Technical == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Exposed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Sandy == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Muddy == 1),1])),
+  row.names = c("Smooth", "Moderate", "Highly Technical", "Exposed", "Sandy", "Muddy"),
+  stringsAsFactors = FALSE
+)
+
+TerrainUse$inj_yes_pct = round((TerrainUse[,1]/length(rawTrailUse$InjuredYN[which(rawTrailUse$InjuredYN == 1)]))*100)
+TerrainUse$inj_no_pct = round((TerrainUse[,2]/length(rawTrailUse$InjuredYN[which(rawTrailUse$InjuredYN == 0)]))*100)
+
+tempTerrainInj = cbind(rawTrailUse[which(rawTrailUse$InjuredYN == 1), c(16:27)], rawTrailUse[which(rawTrailUse$InjuredYN == 1), c(10:15)])
+temp_TerrainInj_results = MI.test(tempTerrainInj, I = 12, J = 6, type = "bon")
+kable(round(temp_TerrainInj_results$bon$X.sq.S.ij.p.bon, digits = 4))
+
+
+terrain_inj_pct = data.frame(
+  "Smooth" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Moderate" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Technical" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Exposed" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Sandy" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  "Muddy" = c(0,0,0,0,0,0,0,0,0,0,0,0),
+  row.names = names(tempTerrainInj)[c(1:12)],
+  stringsAsFactors = FALSE
+)
+
+for (i in 1:6) {
+  
+  for (k in 1:12) {
+    
+   terrain_inj_pct[k,i] = round((length(tempTerrainInj[which(tempTerrainInj[,k] == 1 & tempTerrainInj[,(12+i)] == 1),1]))/(length(tempTerrainInj[which(tempTerrainInj[,(12+i)] == 1),1]))*100)
+    
+  }
+  
+}
+
+
+TrailShoeInj = data.frame(
+  "TS_yes" = c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$ShoesYN == 1),1]),
+               length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$ShoesYN == 1),1])),
+  "TS_no" = c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$ShoesYN == 0),1]),
+              length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$ShoesYN == 0),1])),
+  row.names = c("Uninjured", "Injured"), stringsAsFactors = FALSE)
+  
+  
+rawTrail.response.table = item.response.table(rawTrailUse[,c(2,3)], I = 1, J = 1)
+trail.inj.fisher =  fisher.test(TrailShoeInj)
+trailshoe_results = MI.test(rawTrailUse[,-c(1,3:9)], I = 1, J = 6, type = "bon")
+
+TrailShoeInj2 = data.frame(
+   "TS_yes" = c(485,270),
+  "TS_no" = c(126,39),
+  row.names = c("Uninjured", "Injured"), stringsAsFactors = FALSE)
+trail.inj.fisher2 = fisher.test(TrailShoeInj2)
+
+
+
+tempShoe = data.frame(
+    "Inj" = c(length(rawTrailUse[which(rawTrailUse$ShoesYN == 1 & rawTrailUse$Groomed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$s == 1 & rawTrailUse$MultiUse == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$UnpavedForest == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Backcountry == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$AlpineMtn == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 1 & rawTrailUse$Desert == 1),1])),
+  "UnInj" =  c(length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Groomed == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$MultiUse == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$UnpavedForest == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Backcountry == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$AlpineMtn == 1),1]),
+             length(rawTrailUse[which(rawTrailUse$InjuredYN == 0 & rawTrailUse$Desert == 1),1])),
+  row.names = c("Groomed", "MultiUse", "UnpavedForest", "Backcountry", "AlpineMtn", "Desert"),
+  stringsAsFactors = FALSE
+)
+
+
+terrain.table = marginal.table(tempTerrainInj, I = 12, J = 6)
+
+terrain.count.yes = terrain.table[,count.col]
+
+
+```
+**Results**: Injured runners were more likely to run on backcountry, alpine, and desert trails.  Significant associations were also seen between trail type and injury occurrence. See Figure 2A and Table 1 in paper.
+
+
+\newpage
+
+# **Question 6**
+
+What is the breakdown of runners by age, sex, and geographical region?
+
+```{r, echo = FALSE, results = 'asis', message=FALSE, warning=FALSE}
+cb_blue = '#0C7BDC'
+cb_yellow = '#FFC20A'
+cb_darkpurple = '#5D3A9B'
+cb_orange = '#E66100'
+cb_darkred = '#DC3220'
+cb_darkblue = '#005AB5'
+umass_red = '#881C1C'
+umass_grey = '#ACA39A'
+umass_darkgrey = '#63666A'
+
+age_pct = data.frame(
+    "AgeGroup" = c("18-24", "25-34", "35-44", "45-54", "55-65"),
+    "Pct" = c(18, 21, 24, 20, 17),
+    "Percentage" = c('18%', '21%', '24%', '20%', '17%')
+)
+
+sex_pct = data.frame(
+  "Sex" = c("Male", "Female"),
+  "Pct" = c(51, 49),
+  "Percentage" = c('51%', '49%')
+)
+
+geo_pct = data.frame(
+  "Region" = c('Midwest', 'Northeast', 'South', 'West'),
+  "Pct" = c(21, 18, 37, 24),
+  "Percentage" = c('21%', '18%', '37%', '24%')
+)
+
+pie_age = ggpie(data = age_pct, "Pct", label = "Percentage", color = "black", fill = "AgeGroup", palette = c("black", "gray75", "gray50", "gray25", "white"), lab.pos = "out") + 
+  font("x.text", size = 12, face = "bold") + font("legend.text", face = "bold" )+ labs(title = "Age Range") +theme(plot.title = element_text(face = "bold", size = 14, color = "black", hjust = 0.5), legend.position = "bottom", legend.title = element_blank())
+
+ggsave(paste0(savefolder, '/Age_PieChart2.pdf'),pie_age)
+
+pie_sex = ggpie(data = sex_pct, "Pct", label = "Percentage", color = "black", fill = "Sex", palette = c("black", "white"), lab.pos = "out") + 
+  font("x.text", size =12, face = "bold") +font("legend.text", face = "bold" ) + labs(title = "Sex") +theme(plot.title = element_text(face = "bold", size = 14, color = "black", hjust = 0.5), legend.position = "bottom", legend.title = element_blank())
+
+ggsave(paste0(savefolder, '/Sex_PieChart2.pdf'),pie_sex)
+
+pie_geo =  ggpie(data = geo_pct, "Pct", label = "Percentage", color = "black", fill = "Region", palette = c("black", "gray67", "gray33", "white"), lab.pos = "out") + 
+  font("x.text", size = 12, face = "bold")+font("legend.text", face = "bold" ) + labs(title = "Geographical Region") +theme(plot.title = element_text(face = "bold", size = 14, color = "black", hjust = 0.5), legend.position = "bottom", legend.title = element_blank())
+
+ggsave(paste0(savefolder, '/Geography_PieChart2.pdf'),pie_geo)
+
+PiePlotsList = list(pie_age, pie_sex, pie_geo)
+
+PieChartFig = ggarrange(plotlist =  PiePlotsList, ncol = 3, nrow = 1)
+
+ggsave(paste0(savefolder, '/PieChartsFig.png'), PieChartFig, width = 8, height = 4)
+
+print(pie_age)
+print(pie_sex)
+print(pie_geo)
+```
+
+***Note***:  These figures were combined and adjusted in Adobe Illustrator for the paper.
+
+
+
+\newpage
+
+
+# **Question 7**
+
+What was the most common in, trail types used, and terrain types used.
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+injuries = data.frame(
+  "InjuryType" = c("Rolled/sprained ankle", "Knee pain","Shin pain" ,"Lower back pain" , "Plantar fasciitis", "Achilles strain", "Stress fracture in foot", "Upper back pain", "Broken bone in foot", "Stress fracture in shin", "Stress fracture in hip"),
+  "Pct" = c(48,36,31,25,17,15,15,13,13,12,8),
+  "Percentage" = c('48%','36%','31%','25%','17%','15%','15%','13%','13%','12%','8%')
+)
+
+trailtypes = data.frame(
+  "TrailTypes" = c("Groomed trails in a park",
+"Single track multi-use trails",
+ "Unpaved forest roads",
+"Remote 'backcountry' trails",
+"Mountain trails in an alpine setting",
+ "Desert trails"
+),
+  "Pct" = c(65,50,35,28,22,12),
+  "Percentage" = c('65%','50%','35%','28%','22%','12%')
+)
+
+terraintypes = data.frame(
+  "TerrainTypes" = c("Well groomed, non-technical terrain",
+"Moderately technical terrain",
+"Highly technical terrain",
+"Exposed (above treeline) terrain",
+"Sandy terrain",
+"Muddy and slick terrain"),
+  "Pct" = c(74,44,26,24,24,15),
+  "Percentage" = c('74%','44%','26%','24%','24%','15%')
+)
+
+
+injury_plot = ggplot(data = injuries, aes(x = Pct, y = reorder(InjuryType, Pct))) + 
+  geom_col(width = .5, color = "black", fill = "black") + 
+  geom_text(aes(label = Percentage), position = position_dodge(width = 1), hjust = -0.25, family = 'Arial', size = 5, face = 'bold', color = 'black') + 
+  labs(x = 'Percent') + 
+  xlim(0, 55) + 
+  theme(text = element_text(family = "Arial", face = "bold"), 
+        axis.title.y = element_blank(), axis.text.x = element_blank(), 
+        axis.text.y = element_text(size = 14, face = "bold", color = "black"), axis.ticks = element_blank(),
+        axis.title.x = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.background = element_blank()) 
+
+
+trail_plot = ggplot(data = trailtypes, aes(x = Pct, y = reorder(TrailTypes, Pct))) + 
+  geom_col(width = .5, color = "black", fill = "black") + 
+  geom_text(aes(label = Percentage), position = position_dodge(width = 1), hjust = -0.25, family = 'Arial', size = 5, face = 'bold', color = 'black') + 
+  labs(x = 'Percent') + 
+ xlim(0, 100) + 
+  theme(text = element_text(
+    #family = "Arial",
+    face = "bold"), 
+        axis.title.y = element_blank(), axis.text.x = element_blank(), 
+        axis.text.y = element_text(size = 14, face = "bold", color = "black"), axis.ticks = element_blank(),
+        axis.title.x = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.background = element_blank()) 
+
+terrain_plot = ggplot(data = terraintypes, aes(x = Pct, y = reorder(TerrainTypes, Pct))) + 
+  geom_col(width = .5, color = "black", fill = "black") + 
+  geom_text(aes(label = Percentage), position = position_dodge(width = 1), hjust = -0.25,
+            #family = 'Arial',
+            size = 5, face = 'bold', color = 'black') + 
+  labs(x = 'Percent') + 
+ xlim(0, 100) + 
+  theme(text = element_text(family = "Arial", face = "bold"), 
+        axis.title.y = element_blank(), axis.text.x = element_blank(), 
+        axis.text.y = element_text(size = 14, face = "bold", color = "black"), axis.ticks = element_blank(),
+        axis.title.x = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(),panel.background = element_blank()) 
+
+ggsave(filename = paste0(savefolder, '/InjuryPlot.png'), injury_plot, width = 6, height = 4, scale = 1)
+
+temp_list = list(trail_plot, terrain_plot)
+
+trail_terrain_plot = ggarrange(plotlist = temp_list, ncol = 1, nrow =2, labels = c("A", "B"), font.label = c(size = 16), align = "v")
+
+ggsave(filename = paste0(savefolder, '/TrailTerrain.png'), trail_terrain_plot, width = 6, height = 6, scale = 1)
+
+print(injury_plot)
+print(trail_terrain_plot)
+```
+**Results**: Rolled/sprained ankle was the most common injury sustained.  Groomed trails and terrains were the most popular amongst all runners.  See Figure 3 in paper.
+
+\newpage 
+
+# **Question 8**
+
+What is the proportion of runners that ran in shoes, specifically trail shoes.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+FullData = as.data.frame(read_excel(paste0(savefolder,"/Injury_Trail_RawData_Full.xlsx")))
+
+
+tempRawData  = as.data.frame(read_excel(paste0(savefolder, "/Injury_Trail_RawData_Full.xlsx")))[,c(1,2,12,22,23,24,25)]
+names(tempRawData) = c("ID", "TrailType", "TerrainType", "Injured", "InjuryType", "RunGear", "TrailProducts")
+tempRawData = tempRawData[-c(1,2),]
+
+tempRawData = tempRawData[-which(tempRawData$Injured == "Prefer not to answer"),]
+
+tempTrailData = data.frame(matrix(ncol = 29, nrow = nrow(tempRawData)))
+names(tempTrailData)  = c("ID", "InjuredYN", "ShodYN", "TrailShoesYN", "Groomed", 
+                            "MultiUse",
+                            "UnpavedForest",
+                            "Backcountry",
+                            "AlpineMtn",
+                            "Desert",
+                        "Smooth",
+                        "Moderate",
+                        "Technical",
+                        "Exposed",
+                        "Sandy",
+                        "Muddy",
+                         "AnkleSprain",
+                         "FootFracture",
+                         "ShinFracture",
+                         "HipFracture",
+                         "PlantarFasciitis",
+                         "BrokenFoot",
+                         "KneePain",
+                         "ShinPain",
+                         "LowerBack",
+                         "UpperBack",
+                         "AchillesStrain",
+                         "Other",
+                         "NoAnswer")
+
+groom = "Groomed trails in a park"
+multi = "Single track multi-use trails (e.g., hiking, running, horseback, riding)"
+mtn = "Mountain trails in an alpine setting"
+desert = "Desert trails"
+unpaved = "Unpaved forest roads"
+remote = 'Remote "backcountry" trails'
+other = "Other (Specify)"
+
+easy = "Well groomed, non-technical, and smooth terrain (comprised of dirt, gravel, or other hard-packed surfaces)"
+moderate = "Moderately technical terrain (comprised of several sections of rocks, roots, mud, and other obstacles)"
+technical = "Highly technical terrain (comprised of several sections of rocks, roots, mud, and other obstacles)"
+exposed = "Exposed terrain typically above the treeline"
+sandy = "Sandy terrain"
+muddy = "Muddy and slick terrain"
+other2 = "Other (Specify)"
+
+sprained_ankle = "Rolled/sprained ankle"
+foot_fracture = "Stress fracture in foot"
+shin_fracture = "Stress fracture in shin"
+hip_fracture = "Stress fracture in hip"
+pl_fascia = "Plantar fasciitis"
+broken_foot = "Broken bone in foot"
+knee_pain = "Knee pain"
+shin_pain = "Shin pain"
+lower_back = "Lower back pain"
+upper_back = "Upper back pain"
+achilles = "Achilles strain"
+other3 = "Other"
+no_answer = "Prefer not to answer"
+
+trailshoes = "Shoes"
+
+
+
+
+for (i in 1:nrow(tempRawData)) {
+  
+  tempTrailData$ID[i] = i
+  
+  tempTrailData$InjuredYN[i] = ifelse(tempRawData$Injured[i] == "Yes", 1, 0)
+  
+  tempTrailData$ShodYN[i] = ifelse(grepl(trailshoes, tempRawData$RunGear[i], fixed = TRUE) == TRUE, 1, 0)
+  tempTrailData$TrailShoesYN[i] = ifelse(grepl(trailshoes, tempRawData$TrailProducts[i], fixed = TRUE) == TRUE, 1, 0)
+                                   
+  tempTrailData$Groomed[i] = ifelse(grepl(groom, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$MultiUse[i] = ifelse(grepl(multi, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$UnpavedForest[i] = ifelse(grepl(unpaved, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Backcountry[i] = ifelse(grepl(remote, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$AlpineMtn[i] = ifelse(grepl(mtn, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Desert[i] = ifelse(grepl(desert, tempRawData$TrailType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+  tempTrailData$Smooth[i] = ifelse(grepl(easy, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Moderate[i] = ifelse(grepl(moderate, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Technical[i] = ifelse(grepl(technical, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Exposed[i] = ifelse(grepl(exposed, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Sandy[i] = ifelse(grepl(sandy, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Muddy[i] = ifelse(grepl(muddy, tempRawData$TerrainType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+  tempTrailData$AnkleSprain[i] = ifelse(grepl(sprained_ankle, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$FootFracture[i] = ifelse(grepl(foot_fracture, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$ShinFracture[i] = ifelse(grepl(shin_fracture, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$HipFracture[i] = ifelse(grepl(hip_fracture, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$PlantarFasciitis[i] = ifelse(grepl(pl_fascia, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$BrokenFoot[i] = ifelse(grepl(broken_foot, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$KneePain[i] = ifelse(grepl(knee_pain, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$ShinPain[i] = ifelse(grepl(shin_pain, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$LowerBack[i] = ifelse(grepl(lower_back, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$UpperBack[i] = ifelse(grepl(upper_back, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$AchillesStrain[i] = ifelse(grepl(achilles, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$Other[i] = ifelse(grepl(other3, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  tempTrailData$NoAnswer[i] = ifelse(grepl(no_answer, tempRawData$InjuryType[i], fixed = TRUE) ==  TRUE, 1, 0)
+  
+}
+
+## how many runners wore shoes
+ShodRunners = length(tempTrailData$ShodYN[which(tempTrailData$ShodYN == 1)])
+#print(100*(ShodRunners/(length(tempTrailData$ShodYN))))
+
+TrailShod = length(tempTrailData$ShodYN[which(tempTrailData$ShodYN == 1 & tempTrailData$TrailShoesYN ==1)])
+#print(100*(TrailShod/ShodRunners))
+
+cat(paste('% Shod of All Runners:', round(100*(ShodRunners/(length(tempTrailData$ShodYN))))))
+cat(paste('% Trail Shoe of All Runners:', round(100*(TrailShod/(length(tempTrailData$ShodYN))))))
+cat(paste('% Trail Shoe of Shod Runners:', round(100*(TrailShod/ShodRunners))))
+
+
+
+
+
+```
+***Results***: 92% of all runners wore shoes while running on trails.  75% of all runners, and 81% of shod runners,  wore shoes designed for trail running.
+
+
+\newpage 
+
+# **Question 9**
+
+What are the proportions of Injured and Uninjured runners that ran on specific trails and terrains?
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+trail_pct = data.frame(
+  "Trail" = c("Groomed trails in a park","Groomed trails in a park",
+"Single track multi-use trails","Single track multi-use trails",
+ "Unpaved forest roads","Unpaved forest roads",
+"Remote 'backcountry' trails","Remote 'backcountry' trails",
+"Mountain trails in an alpine setting","Mountain trails in an alpine setting",
+ "Desert trails","Desert trails"),
+  "Injury" = c("Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured"),
+  "Pct" = c(67, 62, 48, 55, 33, 39, 24 ,36, 19, 28, 8, 19),
+"Sig" = c("","","","","","","","*","","*","","*"),
+  stringsAsFactors = FALSE
+)
+
+trail_pct$Trail = factor(trail_pct$Trail)
+# trail_inj_sig = data.frame(
+#   "Trail" = unique(trail_pct$Trail),
+#   "Value" = c("","","","","","","","*","*","*","*","*"),
+#   stringsAsFactors = FALSE
+# )
+
+trail_inj_pct = 
+  ggplot(data = trail_pct, aes(x = Pct, y = reorder(Trail, Pct), fill = Injury, color = Injury)) + 
+  geom_col(width = .5, position = "dodge") + 
+  scale_fill_manual(values = c("black", "white")) +
+  scale_color_manual(values = c("black", "black")) +
+  geom_text(aes(label = Sig), position = position_dodge(width = 1), vjust = 0.4, hjust = -1, family = 'Arial', size = 8, face = 'bold', color = 'black')+
+  labs(x = 'Percent') + 
+ xlim(0, 100) + 
+  theme(text = element_text(family = "Arial", face = "bold"), 
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(size = 10, face = "bold", color = "black"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        axis.title.x = element_text(size = 12, face = "bold", color = "black"), panel.border = element_blank(), panel.grid.major = element_blank(),panel.background = element_blank(), legend.title = element_blank(), legend.position = "top") 
+
+terrain_pct = data.frame(
+  "Terrain" = c("Well groomed, non-technical terrain","Well groomed, non-technical terrain",
+"Moderately technical terrain","Moderately technical terrain",
+"Highly technical terrain","Highly technical terrain",
+"Exposed (above treeline) terrain","Exposed (above treeline) terrain",
+"Sandy terrain","Sandy terrain",
+"Muddy and slick terrain", "Muddy and slick terrain"),
+  "Injury" = c("Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured","Uninjured", "Injured"),
+  "Pct" = c(77, 70, 39, 53, 23, 32, 21, 29, 17, 27, 11, 22),
+"Sig" = c("","","","*","","*","","*","","*","","*"),
+  stringsAsFactors = FALSE
+)
+
+terrain_pct$Terrain = factor(terrain_pct$Terrain)
+
+terrain_inj_pct = 
+  ggplot(data = terrain_pct, aes(x = Pct, y = reorder(Terrain, Pct), fill = Injury, color = Injury)) + 
+  geom_col(width = .5, position = "dodge") + 
+  scale_fill_manual(values = c("black", "white")) +
+  scale_color_manual(values = c("black", "black")) +
+  geom_text(aes(label = Sig), position = position_dodge(width = 1), vjust = 0.4, hjust = -1, family = 'Arial', size = 8, face = 'bold', color = 'black')+
+  labs(x = 'Percent') + 
+ xlim(0, 100) + 
+  theme(text = element_text(family = "Arial", face = "bold"), 
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(size = 10, face = "bold", color = "black"), 
+        axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+        axis.title.x = element_text(size = 12, face = "bold", color = "black"), panel.border = element_blank(), panel.grid.major = element_blank(),panel.background = element_blank(), legend.title = element_blank(), legend.position = "top") 
+
+inj_list = list(trail_inj_pct, terrain_inj_pct)
+
+trail_terrain_inj_plot = ggarrange(plotlist = inj_list, ncol = 1, nrow =2, labels = c("A", "B"), font.label = c(size = 14), align = "v")
+
+
+
+ggsave(filename = paste0(savefolder, '/trail_terrain_injPct.png'), trail_terrain_inj_plot, width = 6, height = 6, scale = 1)
+
+print(trail_terrain_inj_plot)
+
+```
+***Results***: Injured runners were more likely to run on backcountry, alpine, and desert trails than uninjured runners.  All but groomed terrain were more likely to be used by injured runners than uninjured.
